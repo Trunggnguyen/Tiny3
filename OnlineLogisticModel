@@ -1,0 +1,73 @@
+package android.server.power.nextapp;
+
+/**
+ * Online logistic regression with hashing trick.
+ * Uses sparse binary features (x_i in {0,1}).
+ */
+public final class OnlineLogisticModel {
+    private final int mPow2;
+    private final int mDim;
+    private final int mMask;
+    private final float[] mW;
+    private float mB;
+
+    private final float mLr;
+    private final float mL2;
+
+    public OnlineLogisticModel(int hashDimPow2, float lr, float l2) {
+        mPow2 = hashDimPow2;
+        mDim = 1 << hashDimPow2;
+        mMask = mDim - 1;
+        mW = new float[mDim];
+        mB = 0f;
+        mLr = lr;
+        mL2 = l2;
+    }
+
+    public int getHashDimPow2() { return mPow2; }
+    public float[] getWeights() { return mW; }
+    public float getBias() { return mB; }
+    public void setBias(float b) { mB = b; }
+    public void setWeights(float[] w) {
+        if (w == null || w.length != mW.length) throw new IllegalArgumentException("dim mismatch");
+        System.arraycopy(w, 0, mW, 0, mW.length);
+    }
+
+    /** Sigmoid(w·x + b). */
+    public float score(int[] featIdx, int featCount) {
+        float z = mB;
+        for (int i = 0; i < featCount; i++) {
+            z += mW[featIdx[i]];
+        }
+        return sigmoid(z);
+    }
+
+    /** One SGD step for binary label in {0,1}. */
+    public void update(int[] featIdx, int featCount, int label01) {
+        float p = score(featIdx, featCount);
+        float grad = (p - label01); // dloss/dz for logloss
+
+        // bias update
+        mB -= mLr * grad;
+
+        // weight update (L2 + grad*x)
+        for (int i = 0; i < featCount; i++) {
+            int idx = featIdx[i];
+            float wi = mW[idx];
+            wi -= mLr * (grad + mL2 * wi);
+            mW[idx] = wi;
+        }
+    }
+
+    private static float sigmoid(float z) {
+        if (z >= 0f) {
+            float ez = (float) Math.exp(-z);
+            return 1f / (1f + ez);
+        } else {
+            float ez = (float) Math.exp(z);
+            return ez / (1f + ez);
+        }
+    }
+
+    public int mask() { return mMask; }
+}
